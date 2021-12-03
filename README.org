@@ -1,8 +1,8 @@
 * rlisp
   rlisp is an even better(compared with my previous project [[https://github.com/kabu1204/ILisp][ILisp]]) Lisp interpreter written in Rust.
-** Build
-#+begin_src
-git clone https://github.com/kabu1204/rlisp.git
-cd rlisp
-cargo build
-#+end_src
+** Build & Run
+#+begin_src shell
+  git clone https://github.com/kabu1204/rlisp.git
+  cd rlisp
+  cargo run
+#+end_src 
