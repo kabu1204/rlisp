@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use regex::Regex;
 use colored::Colorize;
+use crate::lisparse::LispType::Atom;
 // RE2 Number(R"(^-?\+?0|[1-9]\d*$)");
 // RE2 Float(R"(^-?\d+\.\d+$)");
 
@@ -308,4 +309,60 @@ pub fn neq(args: Vec<Atomic>) ->Atomic {
 
 pub fn begin(args: Vec<Atomic>) ->Atomic {
     return args.last().unwrap().clone();
+}
+
+pub fn _max(arg0: &Atomic, arg1: &Atomic) -> Atomic {
+    match (arg0, arg1) {
+        (Atomic::Number(n1), Atomic::Number(n2)) => {
+            return Atomic::Number(*n1.max(n2));
+        },
+        (Atomic::Number(n1),Atomic::Float(n2)) => {
+            return Atomic::Float(n2.max(*n1 as f64));
+        }
+        (Atomic::Float(n1),Atomic::Number(n2)) => {
+            return Atomic::Float(n1.max(*n2 as f64));
+        },
+        (Atomic::Float(n1),Atomic::Float(n2)) => {
+            return Atomic::Float(n1.max(*n2));
+        },
+        _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
+    }
+    Atomic::Number(-1)
+}
+
+pub fn max(args: Vec<Atomic>) ->Atomic {
+    assert!(args.len()>1);
+    let mut res: Atomic = args[0].clone();
+    for i in 1..args.len() {
+        res = _max(&res, &args[i]);
+    }
+    return res.clone();
+}
+
+pub fn _min(arg0: &Atomic, arg1: &Atomic) ->Atomic {
+    match (arg0, arg1) {
+        (Atomic::Number(n1), Atomic::Number(n2)) => {
+            return Atomic::Number(*n1.min(n2));
+        },
+        (Atomic::Number(n1),Atomic::Float(n2)) => {
+            return Atomic::Float(n2.min(*n1 as f64));
+        }
+        (Atomic::Float(n1),Atomic::Number(n2)) => {
+            return Atomic::Float(n1.min(*n2 as f64));
+        },
+        (Atomic::Float(n1),Atomic::Float(n2)) => {
+            return Atomic::Float(n1.min(*n2));
+        },
+        _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
+    }
+    Atomic::Number(-1)
+}
+
+pub fn min(args: Vec<Atomic>) ->Atomic {
+    assert!(args.len()>1);
+    let mut res: Atomic = args[0].clone();
+    for i in 1..args.len() {
+        res = _min(&res,&args[i]);
+    }
+    return res.clone();
 }
