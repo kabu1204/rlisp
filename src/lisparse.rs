@@ -158,6 +158,13 @@ pub fn init_env_op() ->HashMap<String, fn(Vec<LispType>)->LispType> {
     env_op.insert(String::from("begin"), begin);
     env_op.insert(String::from("max"), max);
     env_op.insert(String::from("min"), min);
+    env_op.insert(String::from("abs"), abs);
+    env_op.insert(String::from("append"), append);
+    env_op.insert(String::from("cons"), cons);
+    env_op.insert(String::from("car"), car);
+    env_op.insert(String::from("cdr"), cdr);
+    env_op.insert(String::from("apply"), apply);
+    env_op.insert(String::from("map"), map);
     env_op
 }
 
@@ -177,6 +184,7 @@ macro_rules! get_atom_value {
 }
 
 pub fn add(args: Vec<LispType>) ->LispType {
+    // TODO: recursive
     let mut res_n = 0;
     let mut res_fp = 0.0;
     let mut flag = false;
@@ -319,7 +327,7 @@ pub fn begin(args: Vec<LispType>) ->LispType {
 }
 
 pub fn _max(arg0: &LispType, arg1: &LispType) -> LispType {
-    match (arg0, arg1) {
+    match (&arg0, &arg1) {
         (LispType::Atom(Atomic::Number(n1)), LispType::Atom(Atomic::Number(n2))) => {
             return lisp_atom!(*n1.max(n2), Number);
         },
@@ -347,7 +355,7 @@ pub fn max(args: Vec<LispType>) ->LispType {
 }
 
 pub fn _min(arg0: &LispType, arg1: &LispType) -> LispType {
-    match (arg0, arg1) {
+    match (&arg0, &arg1) {
         (LispType::Atom(Atomic::Number(n1)), LispType::Atom(Atomic::Number(n2))) => {
             return lisp_atom!(*n1.min(n2), Number);
         },
@@ -372,4 +380,129 @@ pub fn min(args: Vec<LispType>) ->LispType {
         res = _min(&res, &args[i]);
     }
     res.clone()
+}
+
+pub fn abs(args: Vec<LispType>) ->LispType{
+    match args[0] {
+        LispType::Atom(Atomic::Number(n)) => {return lisp_atom!(n.abs(), Number); },
+        LispType::Atom(Atomic::Float(n)) => { return lisp_atom!(n.abs(), Float); },
+        _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
+    }
+    lisp_atom!(0, Number)
+}
+
+/*
+(map Op '<list> '<list> ... '<list>)
+ */
+pub fn map(args: Vec<LispType>) ->LispType{
+    let mut res_list: Vec<LispType> = Vec::new();
+    match &args[0] {
+        LispType::Atom(Atomic::Fun(_f)) => {
+            match &args[1] {
+                LispType::List(list) => {
+                    let n = list.len();
+                    let mut v: Vec<Vec<LispType>> = Vec::new();
+                    for i in 0..n {
+                        v.push(vec![list[i].clone()]);
+                    }
+                    for i in 2..args.len() {
+                        match &args[i] {
+                            LispType::List(_list) => {
+                                if _list.len() != n {
+                                    println!("{}", "Arguments except for the 1st should be list of the same size".red());
+                                    return lisp_atom!(-1, Number);
+                                }
+                                for (j, elem) in _list.iter().enumerate() {
+                                    v[j].push(elem.clone());
+                                }
+                            }
+                            _ => {
+                                println!("{}", "Arguments except for the 1st should be of type list".red());
+                                return lisp_atom!(-1,Number);
+                            }
+                        }
+                    }
+                    for i in 0..n {
+                        res_list.push(_f(v[i].clone()));
+                    }
+                    return LispType::List(res_list);
+                },
+                _ => { println!("{}", "Arguments except for the 1st should be of type list".red()); }
+            }
+        },
+        _ => { println!("{}", "The first argument of 'map' should be a function".red()); }
+    }
+    lisp_atom!(-1, Number)
+}
+
+/*
+(apply Op '<List>)
+(apply Op <Atom> <Atom> ... '<List>)
+ */
+pub fn apply(args: Vec<LispType>) ->LispType{
+    match &args[0] {
+        LispType::Atom(Atomic::Fun(_f)) => {
+            let mut expanded_args = (&args[1..args.len()-1]).to_owned();
+            match args.last().unwrap() {
+                LispType::List(list) => {
+                    for elem in list {
+                        expanded_args.push(elem.clone());
+                    }
+                    return _f(expanded_args);
+                }
+                _ => { println!("{}","The last argument of 'apply' should be a list".red()); }
+            }
+        }
+        _ => { println!("{}","The first argument of 'apply' should be a function".red()); }
+    }
+    lisp_atom!(-1, Number)
+}
+
+pub fn car(args: Vec<LispType>) ->LispType{
+    match &args[0] {
+        LispType::List(_list) => {
+            return _list[0].clone();
+        }
+        _ => {}
+    }
+    lisp_atom!(-1, Number)
+}
+
+pub fn cdr(args: Vec<LispType>) ->LispType{
+    match &args[0] {
+        LispType::List(_list) => {
+            return LispType::List(_list[1..].to_owned());
+        }
+        _ => {}
+    }
+    lisp_atom!(-1, Number)
+}
+
+pub fn append(args: Vec<LispType>) ->LispType{
+    let mut n_list: Vec<LispType> = Vec::new();
+    for arg in args.iter() {
+        if let LispType::List(_list) = arg {
+            n_list.append(&mut _list.clone());
+        } else {
+            println!("{}","Arguments should be of type List".red());
+        }
+    }
+    LispType::List(n_list)
+}
+
+
+pub fn cons(args: Vec<LispType>) ->LispType{
+    // TODO empty list
+    match &args[1] {
+        LispType::Atom(atom) => {
+            return LispType::List(vec![args[0].clone(),args[1].clone()]);
+        },
+        LispType::List(list) => {
+            let mut retv = vec![args[0].clone()];
+            for e in list.iter(){
+                retv.push(e.clone());
+            }
+            return LispType::List(retv);
+        }
+    }
 }
