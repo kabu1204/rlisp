@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::path::is_separator;
+use std::{collections::HashMap, fmt};
+use std::fmt::{Formatter};
 use regex::Regex;
 use colored::Colorize;
 // RE2 Number(R"(^-?\+?0|[1-9]\d*$)");
@@ -12,38 +12,110 @@ macro_rules! lisp_atom {
 }
 
 #[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
 pub enum Atomic {
     Number(i32),
     Float(f64),
-    Symbol(String),  // TODO: refactor to &str
+    Symbol(String),
     Fun(fn(Vec<LispType>)->LispType),
     Proc(Box<Proc>),
     nil,
     t
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Display for Atomic {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Atomic::Number(n) => write!(f, "{}", n),
+            Atomic::Float(fp) => write!(f, "{}", fp),
+            Atomic::Symbol(sym) => write!(f, "{}", sym),
+            Atomic::nil => write!(f, "nil"),
+            Atomic::t => write!(f, "t"),
+            Atomic::Fun(_f) => write!(f, "{:?}", _f),
+            Atomic::Proc(uf) => write!(f, "{:?}", uf)
+        }
+    }
+}
+
+impl std::cmp::PartialEq for Atomic {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self, &other) {
+            (&Atomic::Number(n1), &Atomic::Number(n2)) => n1==n2,
+            (&Atomic::Float(fp1), &Atomic::Float(fp2)) => fp1==fp2,
+            (&Atomic::Symbol(s1), &Atomic::Symbol(s2)) => s1==s2,
+            (&Atomic::nil, &Atomic::nil) => true,
+            (&Atomic::Fun(f1), &Atomic::Fun(f2)) => f1==f2,
+            (&Atomic::t, &Atomic::t) => true,
+            _ => false
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum LispType {
     Atom(Atomic),
     List(Vec<LispType>)
 }
 
+impl fmt::Display for LispType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", expr2str(self))
+    }
+}
+
 pub fn split_cmd_to_vec(cmd: &str) -> Vec<String> {
-    let expanded_cmd = &cmd.trim().replace("(", "( ").replace(")", " )")[..];
-    println!("Expanded command:{}",expanded_cmd);
+    let expanded_cmd = &cmd.trim().replace("(", "( ")
+                                        .replace(")", " )")
+                                        .replace("'(", "'( ")[..];
     let splited_cmd: Vec<String> = expanded_cmd.split_ascii_whitespace()
                                                 .map(str::to_string)
                                                 .collect();
-    return splited_cmd;
+    let mut splited_cmd_: Vec<String> = Vec::new();
+    let mut bracket_v: Vec<&str> = Vec::new();
+    for v in splited_cmd{
+        match v.as_str() {
+            "'(" => {
+                splited_cmd_.push(String::from("("));
+                splited_cmd_.push(String::from("quote"));
+                splited_cmd_.push(String::from("("));
+                bracket_v.push("'(");
+            },
+            "(" => {
+                splited_cmd_.push(String::from("("));
+                bracket_v.push("(");
+            },
+            ")" => {
+                match bracket_v.pop() {
+                    Some("(") => splited_cmd_.push(String::from(")")),
+                    Some("'(") => {
+                        splited_cmd_.push(String::from(")"));
+                        splited_cmd_.push(String::from(")"));
+                    }
+                    _ => {}
+                }
+            }
+            _ => {
+                if v.starts_with("'"){
+                    splited_cmd_.push(String::from("("));
+                    splited_cmd_.push(String::from("quote"));
+                    splited_cmd_.push(String::from(&v[1..]));
+                    splited_cmd_.push(String::from(")"));
+                } else {
+                    splited_cmd_.push(v);
+                }
+            }
+        }
+    }
+    return splited_cmd_;
 }
 
-pub fn cvt_to_nested_expression(splited_cmd: &[String], idx: &mut usize) ->LispType {
+pub fn cvt_to_nested_expression(splited_cmd: &[String], idx: &mut usize, depth: i32) ->LispType {
     let mut tv: Vec<LispType> = Vec::new();
     while *idx < splited_cmd.len() {
         let content = &splited_cmd[*idx];
         *idx += 1;
         let item = match &content[..] {
-            "(" => cvt_to_nested_expression(splited_cmd, idx),
+            "(" => cvt_to_nested_expression(splited_cmd, idx, depth+1),
             ")" => {return LispType::List(tv);},
             "nil" => {return LispType::Atom(Atomic::nil)},
             "t" => {return LispType::Atom(Atomic::t)},
@@ -55,22 +127,27 @@ pub fn cvt_to_nested_expression(splited_cmd: &[String], idx: &mut usize) ->LispT
         };
         tv.push(item);
     }
-    LispType::List(tv)
+    if depth==0 { tv.last().unwrap().clone() } else { LispType::List(tv) }
 }
 
-pub fn is_func(s: &String, env_op: &HashMap<String, fn(Vec<LispType>)->LispType>) ->bool {
-    return env_op.contains_key(s);
-}
-
-pub fn is_symbol(s: &String, env_symbol: &HashMap<String, LispType>) ->bool {
-    return env_symbol.contains_key(s);
+pub fn expr2str(expr: &LispType) ->String {
+    match expr {
+        LispType::Atom(atom) => { format!("{}", atom) },
+        LispType::List(list) => {
+            let mut stringv: Vec<String> = Vec::new();
+            for elem in list{
+                stringv.push(expr2str(elem));
+            }
+            format!("({})", stringv.join(" "))
+        }
+    }
 }
 
 pub fn is_number(s: &String) ->i32 {
-    if Regex::new(r"^-?\+?0|[1-9]\d*$").unwrap().is_match(&s){
+    if Regex::new(r"^-?\d+$").unwrap().is_match(&s){
         return 1;
     }
-    else if Regex::new(r"^-?\d+\.\d+$").unwrap().is_match(&s) {
+    else if Regex::new(r"^[-+]?[0-9]*\.?[0-9]+$").unwrap().is_match(&s) {
         return 2;
     }
     0
@@ -117,7 +194,7 @@ impl Env {
     fn add_symbol(&mut self, sym: &String, value: &LispType) {
         use std::collections::hash_map::Entry;
         match self.local_env.entry(sym.clone()) {
-            Entry::Occupied(entry) => {
+            Entry::Occupied(_) => {
                 println!("{}:{}","You can't define a symbol twice".red(),sym.green());
             },
             Entry::Vacant(entry) => {
@@ -131,7 +208,7 @@ impl Env {
             Entry::Occupied(mut entry) => {
                 entry.insert(value.clone());
             },
-            Entry::Vacant(entry) => {
+            Entry::Vacant(_) => {
                 println!("{}","Assigning to a undefined symbol is not allowed".red());
             }
         }
@@ -148,7 +225,14 @@ impl Env {
     }
 }
 
-pub fn eval(expr: &LispType, env:&mut Box<Env>) -> LispType {
+#[allow(non_snake_case)]
+pub fn Eval(cmd: &str, env: &mut Box<Env>) ->LispType{
+    let v = split_cmd_to_vec(cmd);
+    let expr = cvt_to_nested_expression(&v[..],&mut(0 as usize), 0);
+    eval(&expr, env)
+}
+
+pub fn eval(expr: &LispType, env:&mut Box<Env>) ->LispType {
     match expr {
         LispType::Atom(atom) => {
             match atom {
@@ -192,13 +276,21 @@ pub fn eval(expr: &LispType, env:&mut Box<Env>) -> LispType {
                                 println!("{}","Not a valid symbol name!".red());
                             }
                         },
+                        "write" => {
+                            match &list[1] {
+                                LispType::Atom(Atomic::Symbol(s)) => {
+                                    print!("{}", s);
+                                }
+                                _ => {}
+                            }
+                        }
                         "quote" => {
                             return list[1].clone();
                         },
                         "set!" => {
                             if let LispType::Atom(Atomic::Symbol(symbol_name)) = &list[1] {
                                 let value = eval(&list[2], env);
-                                env.add_symbol(symbol_name, &value);
+                                env.set_symbol(symbol_name, &value);
                             } else {
                                 println!("{}","Not a valid symbol name!".red());
                             }
@@ -248,6 +340,7 @@ pub fn init_env() ->Env{
     env.add_symbol(&String::from("quote"), &lisp_atom!(String::from("quote"), Symbol));
     env.add_symbol(&String::from("set!"), &lisp_atom!(String::from("set!"), Symbol));
     env.add_symbol(&String::from("lambda"), &lisp_atom!(String::from("lambda"), Symbol));
+    env.add_symbol(&String::from("write"),&lisp_atom!(String::from("write"), Symbol));
     env.add_symbol(&String::from("+"), &lisp_atom!(add, Fun));
     env.add_symbol(&String::from("-"), &lisp_atom!(minus, Fun));
     env.add_symbol(&String::from("*"), &lisp_atom!(mul, Fun));
@@ -268,6 +361,7 @@ pub fn init_env() ->Env{
     env.add_symbol(&String::from("cdr"), &lisp_atom!(cdr, Fun));
     env.add_symbol(&String::from("apply"), &lisp_atom!(apply, Fun));
     env.add_symbol(&String::from("map"), &lisp_atom!(map, Fun));
+    env.add_symbol(&String::from("list"), &lisp_atom!(list_, Fun));
     env
 }
 
@@ -307,10 +401,22 @@ pub fn add(args: Vec<LispType>) ->LispType {
 pub fn minus(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return lisp_atom!(n - get_atom_value!(args[1],i32), Number);
+            return if args.len()>1 {
+                if let LispType::Atom(Atomic::Float(_fp)) = args[1] {
+                    lisp_atom!(n as f64 - get_atom_value!(args[1],f64), Float)
+                } else {
+                    lisp_atom!(n - get_atom_value!(args[1], i32), Number)
+                }
+            } else {
+                lisp_atom!(-get_atom_value!(args[0],i32), Number)
+            }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return lisp_atom!(fp - get_atom_value!(args[1],f64), Float);
+            return if args.len()>1 {
+                lisp_atom!(fp - get_atom_value!(args[1],f64), Float)
+            } else {
+                lisp_atom!(-get_atom_value!(args[0],f64), Float)
+            }
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
@@ -645,7 +751,7 @@ pub fn append(args: Vec<LispType>) ->LispType{
 pub fn cons(args: Vec<LispType>) ->LispType{
     // TODO empty list
     match &args[1] {
-        LispType::Atom(atom) => {
+        LispType::Atom(_) => {
             return LispType::List(vec![args[0].clone(),args[1].clone()]);
         },
         LispType::List(list) => {
@@ -655,5 +761,34 @@ pub fn cons(args: Vec<LispType>) ->LispType{
             }
             return LispType::List(retv);
         }
+    }
+}
+
+pub fn list_(args: Vec<LispType>) ->LispType{
+    return LispType::List(args);
+}
+
+/*********************************/
+/******* Below are tests *********/
+/*********************************/
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add() {
+        let mut env = Box::new(init_env());
+        assert_eq!(Eval("(+ 1 2 3 4 5)", &mut env), LispType::Atom(Atomic::Number(15)));
+        assert_eq!(Eval("(+ 1.1 2.2 3.3 4.4 5.5)", &mut env), LispType::Atom(Atomic::Float(16.5)));
+    }
+
+    #[test]
+    fn test_minus() {
+        let mut env = Box::new(init_env());
+        assert_eq!(Eval("(- 2 1)", &mut env), lisp_atom!(1, Number));
+        assert_eq!(Eval("(- 2.2 1.3)", &mut env), lisp_atom!(0.9, Float));
+        assert_eq!(Eval("(- 2)", &mut env), lisp_atom!(-2, Number));
+        assert_eq!(Eval("(- 2.2)", &mut env), lisp_atom!(-2.2, Float));
     }
 }

@@ -1,5 +1,6 @@
 use colored::Colorize;
 use dialoguer::Input;
+use crate::lisparse::{Eval};
 
 mod lisparse;
 
@@ -10,10 +11,8 @@ fn main() {
     loop{
         // Use RustyLine instead
         _buf = Input::new().with_prompt("> ").interact_text().unwrap();
-        println!("{:?}", _buf);
-        let v = lisparse::split_cmd_to_vec(&_buf);
-        let expr = lisparse::cvt_to_nested_expression(&v[..],&mut(0 as usize));
-        let result = lisparse::eval(&expr, &mut env);
+        // println!("{:?}", _buf);
+        let result = Eval(&_buf, &mut env);
         println!("{:?}",result);
     }
 }
