@@ -70,6 +70,51 @@ pub fn is_number(s: &String) ->i32 {
     0
 }
 
+#[derive(Debug, Clone)]
+pub struct Proc {
+    params: Vec<String>,
+    expr: LispType
+}
+
+impl Proc {
+    pub fn new(params: Vec<String>, expr:LispType) ->Proc {
+        return Proc{params, expr};
+    }
+    // pub fn run(args: Vec<LispType>) ->LispType {
+    //
+    // }
+}
+
+#[derive(Debug,Clone)]
+pub struct Env {
+    local_env_symbol: HashMap<String, LispType>,
+    local_env_op: HashMap<String, fn(Vec<LispType>)->LispType>,
+    parent_env: Option<Box<Env>>
+}
+
+impl Env {
+    fn lookup_symbol(&self, s: &String) ->Result<LispType, &'static str>{
+        return if self.local_env_symbol.contains_key(s) {
+            Ok(self.local_env_symbol[s].clone())
+        } else {
+            match &(self.parent_env) {
+                None => Err("Keyword Error: Undefined symbol"),
+                Some(ptr) => ptr.lookup_symbol(s)
+            }
+        }
+    }
+    fn lookup_fun(&self, s: &String) ->Result<LispType, &'static str>{
+        return if self.local_env_op.contains_key(s) {
+            Ok(lisp_atom!(self.local_env_op[s], Fun))
+        } else {
+            match &(self.parent_env) {
+                None => Err("Keyword Error: Undefined symbol"),
+                Some(ptr) => ptr.lookup_fun(s)
+            }
+        }
+    }
+}
+
 pub fn eval(expr: &LispType, env_symbol: &mut HashMap<String, LispType>,
                             env_op: &mut HashMap<String, fn(Vec<LispType>)->LispType>) -> LispType {
     match expr {
@@ -82,7 +127,7 @@ pub fn eval(expr: &LispType, env_symbol: &mut HashMap<String, LispType>,
                         return env_symbol[sym].clone();
                     } else {
                         println!("{} {}",sym.green(),"is not defined!\n".red());
-                        return lisp_atom!(-1,Number);
+                        return lisp_atom!(-1, Number);
                     }
                 },
                 _ => {  return LispType::Atom(atom.clone()); }
@@ -109,14 +154,44 @@ pub fn eval(expr: &LispType, env_symbol: &mut HashMap<String, LispType>,
                             }
                         },
                         "define" => {
-                            let symbol = eval(&list[1], env_symbol, env_op);
-                            if let LispType::Atom(Atomic::Symbol(symbol_name)) = symbol {
+                            if let LispType::Atom(Atomic::Symbol(symbol_name)) = &list[1] {
+                                // to avoid borrowing twice
                                 let value = eval(&list[2], env_symbol, env_op);
-                                env_symbol.insert(symbol_name, value);
+                                use std::collections::hash_map::Entry;
+                                match env_symbol.entry(symbol_name.clone()) {
+                                    Entry::Occupied(entry) => {
+                                        println!("{}","You can't define a symbol twice".red());
+                                    },
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(value);
+                                    }
+                                }
                                 // why not working? env_symbol.insert(symbol_name, eval(&list[2], env_symbol, env_op));
                             } else {
                                 println!("{}","Not a valid symbol name!".red());
                             }
+                        },
+                        "quote" => {
+                            return list[1].clone();
+                        },
+                        "set!" => {
+                            if let LispType::Atom(Atomic::Symbol(symbol_name)) = &list[1] {
+                                let value = eval(&list[2], env_symbol, env_op);
+                                use std::collections::hash_map::Entry;
+                                match env_symbol.entry(symbol_name.clone()) {
+                                    Entry::Occupied(mut entry) => {
+                                        entry.insert(value);
+                                    },
+                                    Entry::Vacant(entry) => {
+                                        println!("{}","Assigning to a undefined symbol is not allowed".red());
+                                    }
+                                }
+                            } else {
+                                println!("{}","Not a valid symbol name!".red());
+                            }
+                        },
+                        "lambda" => {
+
                         }
                         _ => {
                             println!("{}","Undefined keywords!".red());
@@ -132,7 +207,7 @@ pub fn eval(expr: &LispType, env_symbol: &mut HashMap<String, LispType>,
             }
         }
     }
-    lisp_atom!(0,Number)
+    LispType::List(Vec::new())  // empty list, aka nil
 }
 
 pub fn init_env_symbol() ->HashMap<String, LispType> {
