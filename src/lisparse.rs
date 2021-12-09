@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::is_separator;
 use regex::Regex;
 use colored::Colorize;
 // RE2 Number(R"(^-?\+?0|[1-9]\d*$)");
@@ -15,7 +16,10 @@ pub enum Atomic {
     Number(i32),
     Float(f64),
     Symbol(String),  // TODO: refactor to &str
-    Fun(fn(Vec<LispType>)->LispType)
+    Fun(fn(Vec<LispType>)->LispType),
+    Proc(Box<Proc>),
+    nil,
+    t
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +45,8 @@ pub fn cvt_to_nested_expression(splited_cmd: &[String], idx: &mut usize) ->LispT
         let item = match &content[..] {
             "(" => cvt_to_nested_expression(splited_cmd, idx),
             ")" => {return LispType::List(tv);},
+            "nil" => {return LispType::Atom(Atomic::nil)},
+            "t" => {return LispType::Atom(Atomic::t)},
             _ => match is_number(&content) {
                         1 => LispType::Atom(Atomic::Number(content.parse::<i32>().unwrap())),
                         2 => LispType::Atom(Atomic::Float(content.parse::<f64>().unwrap())),
@@ -73,29 +79,66 @@ pub fn is_number(s: &String) ->i32 {
 #[derive(Debug, Clone)]
 pub struct Proc {
     params: Vec<String>,
-    expr: LispType
+    expr: LispType,
+    parent_env: Box<Env>
 }
 
 impl Proc {
-    pub fn new(params: Vec<String>, expr:LispType) ->Proc {
-        return Proc{params, expr};
+    fn new(params: Vec<String>, expr:LispType, parent_env: Box<Env>) ->Proc {
+        return Proc{params, expr, parent_env};
     }
-    // pub fn run(args: Vec<LispType>) ->LispType {
-    //
-    // }
+    fn run(&mut self, args: Vec<LispType>, parent_env: Box<Env>) ->LispType{
+        if args.len()!=self.params.len() {
+            println!("{}","Unmatched arguments with parameters".red());
+        } else {
+            let mut child_env = Box::new(Env::new(Some(parent_env)));
+            for i in 0..args.len(){
+                child_env.add_symbol(&self.params[i], &args[i]);
+            }
+            return eval(&self.expr, &mut child_env);
+        }
+        LispType::Atom(Atomic::nil)
+    }
 }
 
 #[derive(Debug,Clone)]
 pub struct Env {
-    local_env_symbol: HashMap<String, LispType>,
-    local_env_op: HashMap<String, fn(Vec<LispType>)->LispType>,
+    local_env: HashMap<String, LispType>,
     parent_env: Option<Box<Env>>
 }
 
 impl Env {
+    fn new(_parent_env: Option<Box<Env>>) ->Env{
+        return Env{
+            local_env: HashMap::new(),
+            parent_env: _parent_env
+        }
+    }
+    fn add_symbol(&mut self, sym: &String, value: &LispType) {
+        use std::collections::hash_map::Entry;
+        match self.local_env.entry(sym.clone()) {
+            Entry::Occupied(entry) => {
+                println!("{}:{}","You can't define a symbol twice".red(),sym.green());
+            },
+            Entry::Vacant(entry) => {
+                entry.insert(value.clone());
+            }
+        }
+    }
+    fn set_symbol(&mut self, sym: &String, value: &LispType) {
+        use std::collections::hash_map::Entry;
+        match self.local_env.entry(sym.clone()) {
+            Entry::Occupied(mut entry) => {
+                entry.insert(value.clone());
+            },
+            Entry::Vacant(entry) => {
+                println!("{}","Assigning to a undefined symbol is not allowed".red());
+            }
+        }
+    }
     fn lookup_symbol(&self, s: &String) ->Result<LispType, &'static str>{
-        return if self.local_env_symbol.contains_key(s) {
-            Ok(self.local_env_symbol[s].clone())
+        return if self.local_env.contains_key(s) {
+            Ok(self.local_env[s].clone())
         } else {
             match &(self.parent_env) {
                 None => Err("Keyword Error: Undefined symbol"),
@@ -103,69 +146,47 @@ impl Env {
             }
         }
     }
-    fn lookup_fun(&self, s: &String) ->Result<LispType, &'static str>{
-        return if self.local_env_op.contains_key(s) {
-            Ok(lisp_atom!(self.local_env_op[s], Fun))
-        } else {
-            match &(self.parent_env) {
-                None => Err("Keyword Error: Undefined symbol"),
-                Some(ptr) => ptr.lookup_fun(s)
-            }
-        }
-    }
 }
 
-pub fn eval(expr: &LispType, env_symbol: &mut HashMap<String, LispType>,
-                            env_op: &mut HashMap<String, fn(Vec<LispType>)->LispType>) -> LispType {
+pub fn eval(expr: &LispType, env:&mut Box<Env>) -> LispType {
     match expr {
         LispType::Atom(atom) => {
             match atom {
                 Atomic::Symbol(sym) => {
-                    if is_func(sym, env_op) {
-                        return lisp_atom!(env_op[sym],Fun);
-                    } else if is_symbol(sym, env_symbol) {
-                        return env_symbol[sym].clone();
+                    if let Ok(res) = env.lookup_symbol(sym){
+                        return res;
                     } else {
-                        println!("{} {}",sym.green(),"is not defined!\n".red());
-                        return lisp_atom!(-1, Number);
+                        println!("{} {}", sym.green(), "is not defined!".red());
                     }
                 },
-                _ => {  return LispType::Atom(atom.clone()); }
+                _ => {  return expr.clone(); }
             };
         }
         LispType::List(list) => {
             if list.len()==0 {
                 // TODO: deal with empty list
                 println!("{}","Empty list!".green());
-                return lisp_atom!(-1,Number);
+                return LispType::Atom(Atomic::nil);
             }
-            let result = eval(&list[0], env_symbol, env_op);
+            let result = eval(&list[0], env);
             match result {
-                LispType::Atom(Atomic::Symbol(op_name)) => {
-                    match &op_name[..] {
+                LispType::Atom(Atomic::Symbol(keyword)) => {
+                    match &keyword[..] {
                         "if" => {
                             // TODO: can be expanded to
                             // 1.(if test then...)
                             // 2.(if test then else...)
-                            if let LispType::Atom(Atomic::Number(1)) = eval(&list[1], env_symbol, env_op) {
-                                return eval(&list[2], env_symbol, env_op);
+                            if let LispType::Atom(Atomic::t) = eval(&list[1], env) {
+                                return eval(&list[2], env);
                             } else {
-                                return eval(&list[3], env_symbol, env_op);
+                                return eval(&list[3], env);
                             }
                         },
                         "define" => {
                             if let LispType::Atom(Atomic::Symbol(symbol_name)) = &list[1] {
                                 // to avoid borrowing twice
-                                let value = eval(&list[2], env_symbol, env_op);
-                                use std::collections::hash_map::Entry;
-                                match env_symbol.entry(symbol_name.clone()) {
-                                    Entry::Occupied(entry) => {
-                                        println!("{}","You can't define a symbol twice".red());
-                                    },
-                                    Entry::Vacant(entry) => {
-                                        entry.insert(value);
-                                    }
-                                }
+                                let value = eval(&list[2], env);
+                                env.add_symbol(symbol_name, &value);
                                 // why not working? env_symbol.insert(symbol_name, eval(&list[2], env_symbol, env_op));
                             } else {
                                 println!("{}","Not a valid symbol name!".red());
@@ -176,71 +197,78 @@ pub fn eval(expr: &LispType, env_symbol: &mut HashMap<String, LispType>,
                         },
                         "set!" => {
                             if let LispType::Atom(Atomic::Symbol(symbol_name)) = &list[1] {
-                                let value = eval(&list[2], env_symbol, env_op);
-                                use std::collections::hash_map::Entry;
-                                match env_symbol.entry(symbol_name.clone()) {
-                                    Entry::Occupied(mut entry) => {
-                                        entry.insert(value);
-                                    },
-                                    Entry::Vacant(entry) => {
-                                        println!("{}","Assigning to a undefined symbol is not allowed".red());
-                                    }
-                                }
+                                let value = eval(&list[2], env);
+                                env.add_symbol(symbol_name, &value);
                             } else {
                                 println!("{}","Not a valid symbol name!".red());
                             }
                         },
                         "lambda" => {
-
+                            let mut param_list: Vec<String> = Vec::new();
+                            if let LispType::List(_list) = &list[1] {
+                                for param in _list{
+                                    if let LispType::Atom(Atomic::Symbol(sym)) = param {
+                                        param_list.push(sym.clone());
+                                    } else {
+                                        println!("{}:{:?}", "Invalid parameters".red(), param);
+                                        return LispType::Atom(Atomic::nil);
+                                    }
+                                }
+                            } else {
+                                println!("{}\n{}", "Syntax Error".red(),"Usage: (lambda (symbol...) expr)".green());
+                                return LispType::Atom(Atomic::nil);
+                            }
+                            return LispType::Atom(Atomic::Proc(Box::new(Proc::new(param_list, list[2].clone(), env.clone()))));
                         }
                         _ => {
                             println!("{}","Undefined keywords!".red());
                         }
                     }
-                },
+                }
                 LispType::Atom(Atomic::Fun(f)) => {
-                    return f(list[1..].into_iter().map(|subexpr| eval(subexpr, env_symbol, env_op)).collect());
+                    return f(list[1..].into_iter().map(|subexpr| eval(subexpr, env)).collect());
                 },
+                LispType::Atom(Atomic::Proc(mut uf)) => {
+                    return uf.run(list[1..].into_iter().map(|subexpr| eval(subexpr, env)).collect(), env.clone());
+                }
                 _ => {
                     return result.clone();
                 }
             }
         }
     }
-    LispType::List(Vec::new())  // empty list, aka nil
+    LispType::Atom(Atomic::nil)
 }
 
-pub fn init_env_symbol() ->HashMap<String, LispType> {
-    let mut env_symbol: HashMap<String, LispType> = HashMap::new();
-    env_symbol.insert(String::from("PI"), LispType::Atom(Atomic::Float(std::f64::consts::PI)));
-    env_symbol.insert(String::from("if"), LispType::Atom(Atomic::Symbol(String::from("if"))));
-    env_symbol.insert(String::from("define"), LispType::Atom(Atomic::Symbol(String::from("define"))));
-    env_symbol
-}
-
-pub fn init_env_op() ->HashMap<String, fn(Vec<LispType>)->LispType> {
-    let mut env_op: HashMap<String, fn(Vec<LispType>)->LispType> = HashMap::new();
-    env_op.insert(String::from("+"), add);
-    env_op.insert(String::from("-"), minus);
-    env_op.insert(String::from("*"), mul);
-    env_op.insert(String::from("/"), div);
-    env_op.insert(String::from(">"), gt);
-    env_op.insert(String::from(">="), ge);
-    env_op.insert(String::from("<"), lt);
-    env_op.insert(String::from("<="), le);
-    env_op.insert(String::from("="), eq);
-    env_op.insert(String::from("/="), neq);
-    env_op.insert(String::from("begin"), begin);
-    env_op.insert(String::from("max"), max);
-    env_op.insert(String::from("min"), min);
-    env_op.insert(String::from("abs"), abs);
-    env_op.insert(String::from("append"), append);
-    env_op.insert(String::from("cons"), cons);
-    env_op.insert(String::from("car"), car);
-    env_op.insert(String::from("cdr"), cdr);
-    env_op.insert(String::from("apply"), apply);
-    env_op.insert(String::from("map"), map);
-    env_op
+pub fn init_env() ->Env{
+    let mut env = Env::new(None);
+    env.add_symbol(&String::from("PI"), &lisp_atom!(std::f64::consts::PI, Float));
+    env.add_symbol(&String::from("if"), &lisp_atom!(String::from("if"), Symbol));
+    env.add_symbol(&String::from("define"), &lisp_atom!(String::from("define"), Symbol));
+    env.add_symbol(&String::from("quote"), &lisp_atom!(String::from("quote"), Symbol));
+    env.add_symbol(&String::from("set!"), &lisp_atom!(String::from("set!"), Symbol));
+    env.add_symbol(&String::from("lambda"), &lisp_atom!(String::from("lambda"), Symbol));
+    env.add_symbol(&String::from("+"), &lisp_atom!(add, Fun));
+    env.add_symbol(&String::from("-"), &lisp_atom!(minus, Fun));
+    env.add_symbol(&String::from("*"), &lisp_atom!(mul, Fun));
+    env.add_symbol(&String::from("/"), &lisp_atom!(div, Fun));
+    env.add_symbol(&String::from(">"), &lisp_atom!(gt, Fun));
+    env.add_symbol(&String::from(">="), &lisp_atom!(ge, Fun));
+    env.add_symbol(&String::from("<"), &lisp_atom!(lt, Fun));
+    env.add_symbol(&String::from("<="), &lisp_atom!(le, Fun));
+    env.add_symbol(&String::from("="), &lisp_atom!(eq, Fun));
+    env.add_symbol(&String::from("/="), &lisp_atom!(neq, Fun));
+    env.add_symbol(&String::from("begin"), &lisp_atom!(begin, Fun));
+    env.add_symbol(&String::from("max"), &lisp_atom!(max, Fun));
+    env.add_symbol(&String::from("min"), &lisp_atom!(min, Fun));
+    env.add_symbol(&String::from("abs"), &lisp_atom!(abs, Fun));
+    env.add_symbol(&String::from("append"), &lisp_atom!(append, Fun));
+    env.add_symbol(&String::from("cons"), &lisp_atom!(cons, Fun));
+    env.add_symbol(&String::from("car"), &lisp_atom!(car, Fun));
+    env.add_symbol(&String::from("cdr"), &lisp_atom!(cdr, Fun));
+    env.add_symbol(&String::from("apply"), &lisp_atom!(apply, Fun));
+    env.add_symbol(&String::from("map"), &lisp_atom!(map, Fun));
+    env
 }
 
 /*********************************/
@@ -286,7 +314,7 @@ pub fn minus(args: Vec<LispType>) ->LispType {
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(-1, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn mul(args: Vec<LispType>) ->LispType {
@@ -316,85 +344,133 @@ pub fn div(args: Vec<LispType>) ->LispType {
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(-1, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn gt(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return lisp_atom!(i32::from((n as f64) > get_atom_value!(args[1],f64)), Number);
+            return if (n as f64) > get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return lisp_atom!(i32::from(fp > get_atom_value!(args[1],f64)), Number);
+            return if fp > get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(0, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn lt(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return lisp_atom!(i32::from((n as f64) < get_atom_value!(args[1],f64)), Number);
+            return if (n as f64) < get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return lisp_atom!(i32::from(fp < get_atom_value!(args[1],f64)), Number);
+            return if fp < get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(0, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn ge(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return lisp_atom!(i32::from((n as f64) >= get_atom_value!(args[1],f64)), Number);
+            return if (n as f64) >= get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return lisp_atom!(i32::from(fp >= get_atom_value!(args[1],f64)), Number);
+            return if fp >= get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(0, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn le(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return lisp_atom!(i32::from((n as f64) <= get_atom_value!(args[1],f64)), Number);
+            return if (n as f64) <= get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return lisp_atom!(i32::from(fp <= get_atom_value!(args[1],f64)), Number);
+            return if fp <= get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(0, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn eq(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return lisp_atom!(i32::from((n as f64) == get_atom_value!(args[1],f64)), Number);
+            return if (n as f64) == get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return lisp_atom!(i32::from(fp == get_atom_value!(args[1],f64)), Number);
+            return if fp == get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(0, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn neq(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return lisp_atom!(i32::from((n as f64) != get_atom_value!(args[1],f64)), Number);
+            return if (n as f64) != get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return lisp_atom!(i32::from(fp != get_atom_value!(args[1],f64)), Number);
+            return if fp != get_atom_value!(args[1],f64) {
+                LispType::Atom(Atomic::t)
+            } else {
+                LispType::Atom(Atomic::nil)
+            }
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(0, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn begin(args: Vec<LispType>) ->LispType {
@@ -417,7 +493,7 @@ pub fn _max(arg0: &LispType, arg1: &LispType) -> LispType {
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(-1, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn max(args: Vec<LispType>) ->LispType {
@@ -445,7 +521,7 @@ pub fn _min(arg0: &LispType, arg1: &LispType) -> LispType {
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(-1, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn min(args: Vec<LispType>) ->LispType {
@@ -463,7 +539,7 @@ pub fn abs(args: Vec<LispType>) ->LispType{
         LispType::Atom(Atomic::Float(n)) => { return lisp_atom!(n.abs(), Float); },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
     }
-    lisp_atom!(0, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 /*
@@ -485,7 +561,7 @@ pub fn map(args: Vec<LispType>) ->LispType{
                             LispType::List(_list) => {
                                 if _list.len() != n {
                                     println!("{}", "Arguments except for the 1st should be list of the same size".red());
-                                    return lisp_atom!(-1, Number);
+                                    return LispType::Atom(Atomic::nil);
                                 }
                                 for (j, elem) in _list.iter().enumerate() {
                                     v[j].push(elem.clone());
@@ -493,7 +569,7 @@ pub fn map(args: Vec<LispType>) ->LispType{
                             }
                             _ => {
                                 println!("{}", "Arguments except for the 1st should be of type list".red());
-                                return lisp_atom!(-1,Number);
+                                return LispType::Atom(Atomic::nil);
                             }
                         }
                     }
@@ -507,7 +583,7 @@ pub fn map(args: Vec<LispType>) ->LispType{
         },
         _ => { println!("{}", "The first argument of 'map' should be a function".red()); }
     }
-    lisp_atom!(-1, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 /*
@@ -530,7 +606,7 @@ pub fn apply(args: Vec<LispType>) ->LispType{
         }
         _ => { println!("{}","The first argument of 'apply' should be a function".red()); }
     }
-    lisp_atom!(-1, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn car(args: Vec<LispType>) ->LispType{
@@ -540,7 +616,7 @@ pub fn car(args: Vec<LispType>) ->LispType{
         }
         _ => {}
     }
-    lisp_atom!(-1, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn cdr(args: Vec<LispType>) ->LispType{
@@ -550,7 +626,7 @@ pub fn cdr(args: Vec<LispType>) ->LispType{
         }
         _ => {}
     }
-    lisp_atom!(-1, Number)
+    LispType::Atom(Atomic::nil)
 }
 
 pub fn append(args: Vec<LispType>) ->LispType{
