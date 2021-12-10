@@ -1,8 +1,52 @@
 * rlisp
-  rlisp is an even better(compared with my previous project [[https://github.com/kabu1204/ILisp][ILisp]]) Lisp interpreter written in Rust.
+rlisp is a better(compared with my previous project [[https://github.com/kabu1204/ILisp][ILisp]]) Lisp interpreter written in Rust.
+
+Motivated by [[http://norvig.com/lispy.html][lispy]]
+
+I'm still learning Rust and my implementation is not smart and is of low performance.
 ** Build & Run
 #+begin_src shell
   git clone https://github.com/kabu1204/rlisp.git
   cd rlisp
-  cargo run
-#+end_src 
+  cargo run --release
+#+end_src
+** Test
+#+begin_src shell
+  cargo test
+#+end_src
+** Functions
+| symbol         | usage                                             |
+|----------------+---------------------------------------------------|
+| define         | (define sym expr)                                 |
+| if             | (if cond conseq alt)                              |
+| +, *           | (*Op* /arg1/ /arg2/ ...)                          |
+| -, /           | (*Op* /arg1/ /arg2/)                              |
+| >,<,>=,<=,=,/=       | (*Cmp* /arg1* /arg2/)                             |
+| min, max       | (min /arg1/ /arg2/)                               |
+| abs            | (abs /arg/)                                       |
+| begin          | (begin /expr1/ ... /exprn/)                       |
+| quote          | (quote /expr/) or '/expr/                         |
+| lambda         | (lambda (/params.../) /expr/)                     |
+| set!           | (set! /sym/ /expr/)                               |
+| map            | (map /Op/ '/list/...)                             |
+| apply          | (apply /Op/ /Atom/... '/list/) /Atom/ is optional |
+| car            | (car '/list/)                                     |
+| cdr            | (cdr '/list/)                                     |
+| append         | (append '/list/...)                               |
+| cons           | (cons '/Atom/ '/list/)                            |
+** Examples
+#+begin_src scheme
+  >> (define fibo (lambda (x) (if (< x 2) x (+ (fibo (- x 1)) (fibo (- x 2))))))
+  nil
+  >> (fibo 20)
+  6765
+#+end_src
+[[file:examples/fibo.png]]
+
+#+begin_src scheme
+  >> (define fourth (lambda (x) (car (cdr (cdr (cdr x))))))
+  nil
+  >> (fourth (list 1 2 3 4 5))
+  4
+#+end_src
+[[file:examples/fourth.png]]
