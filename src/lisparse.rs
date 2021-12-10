@@ -780,15 +780,33 @@ mod tests {
     fn test_add() {
         let mut env = Box::new(init_env());
         assert_eq!(Eval("(+ 1 2 3 4 5)", &mut env), LispType::Atom(Atomic::Number(15)));
-        assert_eq!(Eval("(+ 1.1 2.2 3.3 4.4 5.5)", &mut env), LispType::Atom(Atomic::Float(16.5)));
+        assert!((get_atom_value!(Eval("(+ 1.1 2.2 3.3 4.4 5.5)", &mut env),f64)-16.5).abs()<=std::f64::EPSILON);
     }
 
     #[test]
     fn test_minus() {
         let mut env = Box::new(init_env());
         assert_eq!(Eval("(- 2 1)", &mut env), lisp_atom!(1, Number));
-        assert_eq!(Eval("(- 2.2 1.3)", &mut env), lisp_atom!(0.9, Float));
+        assert!((get_atom_value!(Eval("(- 2.2 1.3)", &mut env),f64)-0.9).abs()<=std::f64::EPSILON);
         assert_eq!(Eval("(- 2)", &mut env), lisp_atom!(-2, Number));
-        assert_eq!(Eval("(- 2.2)", &mut env), lisp_atom!(-2.2, Float));
+        assert!((get_atom_value!(Eval("(- 2.2)", &mut env),f64)+2.2).abs()<=std::f64::EPSILON);
     }
+
+    #[test]
+    fn test_mul() {
+	let mut env = Box::new(init_env());
+	assert_eq!(get_atom_value!(Eval("(* 1234 2021)", &mut env),i32),1234*2021);
+	assert!((get_atom_value!(Eval("(* 3.1415 -20.21)", &mut env),f64)+3.1415*20.21).abs()<=std::f64::EPSILON);
+	assert!((get_atom_value!(Eval("(* 3.14 12)", &mut env),f64)-3.14*12.0).abs()<=std::f64::EPSILON);
+    }
+
+    #[test]
+    fn test_div() {
+	let mut env = Box::new(init_env());
+	assert_eq!(get_atom_value!(Eval("(/ 1234 2021)", &mut env),f64),1234.0/2021.0);
+	assert!((get_atom_value!(Eval("(/ 3.1415 -20.21)", &mut env),f64)+3.1415/20.21).abs()<=std::f64::EPSILON);
+	assert!((get_atom_value!(Eval("(/ 3.14 12)", &mut env),f64)-3.14/12.0).abs()<=std::f64::EPSILON);
+    }
+
+    
 }
