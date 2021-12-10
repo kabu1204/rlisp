@@ -1,18 +1,36 @@
 use colored::Colorize;
-use dialoguer::Input;
+use rustyline::error::ReadlineError;
+use rustyline::Editor;
 use crate::lisparse::{Eval};
 
 mod lisparse;
 
 fn main() {
     println!("{}\n{}","This is a Lisp interpreter with Rust runtime.".green(),"Press C-c to exit.".green());
-    let mut _buf = String::new();
+    let mut _buf = Ok(String::new());
     let mut env = Box::new(lisparse::init_env());
-    loop{
-        // Use RustyLine instead
-        _buf = Input::new().with_prompt("> ").interact_text().unwrap();
-        // println!("{:?}", _buf);
-        let result = Eval(&_buf, &mut env);
-        println!("{:?}",result);
+    let mut rl = Editor::<()>::new();
+    if rl.load_history("input_history.txt").is_err(){}
+    loop {
+        _buf = rl.readline(&">> ".green());
+        match _buf {
+            Ok(line) => {
+                rl.add_history_entry(line.as_str());
+                println!("{}",Eval(&line, &mut env));
+            },
+            Err(ReadlineError::Interrupted) => {
+                println!("C-c");
+                break
+            },
+            Err(ReadlineError::Eof) => {
+                println!("C-d");
+                break
+            },
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break
+            }
+        }
     }
+    rl.save_history("input_history.txt").unwrap();
 }

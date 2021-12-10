@@ -2,8 +2,6 @@ use std::{collections::HashMap, fmt};
 use std::fmt::{Formatter};
 use regex::Regex;
 use colored::Colorize;
-// RE2 Number(R"(^-?\+?0|[1-9]\d*$)");
-// RE2 Float(R"(^-?\d+\.\d+$)");
 
 macro_rules! lisp_atom {
     ($var:expr, $atom_type:ident) => {
@@ -117,8 +115,8 @@ pub fn cvt_to_nested_expression(splited_cmd: &[String], idx: &mut usize, depth: 
         let item = match &content[..] {
             "(" => cvt_to_nested_expression(splited_cmd, idx, depth+1),
             ")" => {return LispType::List(tv);},
-            "nil" => {return LispType::Atom(Atomic::nil)},
-            "t" => {return LispType::Atom(Atomic::t)},
+            "nil" => { LispType::Atom(Atomic::nil) },
+            "t" => { LispType::Atom(Atomic::t) },
             _ => match is_number(&content) {
                         1 => LispType::Atom(Atomic::Number(content.parse::<i32>().unwrap())),
                         2 => LispType::Atom(Atomic::Float(content.parse::<f64>().unwrap())),
@@ -249,7 +247,7 @@ pub fn eval(expr: &LispType, env:&mut Box<Env>) ->LispType {
         LispType::List(list) => {
             if list.len()==0 {
                 // TODO: deal with empty list
-                println!("{}","Empty list!".green());
+                // println!("{}","Empty list!".green());
                 return LispType::Atom(Atomic::nil);
             }
             let result = eval(&list[0], env);
@@ -456,14 +454,14 @@ pub fn div(args: Vec<LispType>) ->LispType {
 pub fn gt(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return if (n as f64) > get_atom_value!(args[1],f64) {
+            return if ((n as f64) - get_atom_value!(args[1],f64))>std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
             }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return if fp > get_atom_value!(args[1],f64) {
+            return if (fp - get_atom_value!(args[1],f64))>std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
@@ -477,14 +475,14 @@ pub fn gt(args: Vec<LispType>) ->LispType {
 pub fn lt(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return if (n as f64) < get_atom_value!(args[1],f64) {
+            return if ((n as f64) - get_atom_value!(args[1],f64)) < -std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
             }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return if fp < get_atom_value!(args[1],f64) {
+            return if (fp - get_atom_value!(args[1],f64)) < -std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
@@ -498,14 +496,14 @@ pub fn lt(args: Vec<LispType>) ->LispType {
 pub fn ge(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return if (n as f64) >= get_atom_value!(args[1],f64) {
+            return if ((n as f64) - get_atom_value!(args[1],f64))>= -std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
             }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return if fp >= get_atom_value!(args[1],f64) {
+            return if (fp - get_atom_value!(args[1],f64))>= -std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
@@ -519,14 +517,14 @@ pub fn ge(args: Vec<LispType>) ->LispType {
 pub fn le(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return if (n as f64) <= get_atom_value!(args[1],f64) {
+            return if ((n as f64) - get_atom_value!(args[1],f64))<=std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
             }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return if fp <= get_atom_value!(args[1],f64) {
+            return if (fp - get_atom_value!(args[1],f64))<=std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
@@ -540,14 +538,14 @@ pub fn le(args: Vec<LispType>) ->LispType {
 pub fn eq(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return if (n as f64) == get_atom_value!(args[1],f64) {
+            return if ((n as f64) - get_atom_value!(args[1],f64)).abs()<=std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
             }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return if fp == get_atom_value!(args[1],f64) {
+            return if (fp - get_atom_value!(args[1],f64)).abs()<=std::f64::EPSILON {
                 LispType::Atom(Atomic::t)
             } else {
                 LispType::Atom(Atomic::nil)
@@ -561,17 +559,17 @@ pub fn eq(args: Vec<LispType>) ->LispType {
 pub fn neq(args: Vec<LispType>) ->LispType {
     match args[0] {
         LispType::Atom(Atomic::Number(n)) => {
-            return if (n as f64) != get_atom_value!(args[1],f64) {
-                LispType::Atom(Atomic::t)
-            } else {
+            return if ((n as f64) - get_atom_value!(args[1],f64)).abs()<=std::f64::EPSILON {
                 LispType::Atom(Atomic::nil)
+            } else {
+                LispType::Atom(Atomic::t)
             }
         },
         LispType::Atom(Atomic::Float(fp)) => {
-            return if fp != get_atom_value!(args[1],f64) {
-                LispType::Atom(Atomic::t)
-            } else {
+            return if (fp - get_atom_value!(args[1],f64)).abs()<=std::f64::EPSILON {
                 LispType::Atom(Atomic::nil)
+            } else {
+                LispType::Atom(Atomic::t)
             }
         },
         _ => { println!("{}", "Operands should be of type i32 or f64".red()); }
@@ -751,8 +749,12 @@ pub fn append(args: Vec<LispType>) ->LispType{
 pub fn cons(args: Vec<LispType>) ->LispType{
     // TODO empty list
     match &args[1] {
-        LispType::Atom(_) => {
-            return LispType::List(vec![args[0].clone(),args[1].clone()]);
+        LispType::Atom(atom) => {
+            return if let Atomic::nil = atom {
+                LispType::List(vec![args[0].clone()])
+            } else {
+                LispType::List(vec![args[0].clone(),args[1].clone()])
+            }
         },
         LispType::List(list) => {
             let mut retv = vec![args[0].clone()];
@@ -808,5 +810,71 @@ mod tests {
 	assert!((get_atom_value!(Eval("(/ 3.14 12)", &mut env),f64)-3.14/12.0).abs()<=std::f64::EPSILON);
     }
 
-    
+    #[test]
+    fn test_cmp() {
+	let mut env = Box::new(init_env());
+        assert_eq!(Eval("(> 3.123 453.123)",&mut env),LispType::Atom(Atomic::nil));
+        assert_eq!(Eval("(>= 3.123 3.123)",&mut env),LispType::Atom(Atomic::t));
+        assert_eq!(Eval("(< -31 -30)", &mut env), LispType::Atom(Atomic::t));
+        assert_eq!(Eval("(<= -3.21 -33.9)", &mut env), LispType::Atom(Atomic::nil));
+        assert_eq!(Eval("(/= 3.14 3.14)", &mut env), LispType::Atom(Atomic::nil));
+    }
+
+    #[test]
+    fn test_minmax() {
+        let mut env = Box::new(init_env());
+        assert_eq!(get_atom_value!(Eval("(max 1 2)", &mut env),i32),2);
+        assert_eq!(get_atom_value!(Eval("(min -3 -1)",&mut env),i32),-3);
+        assert!((get_atom_value!(Eval("(max (min -3.14 2.8) (max 11.2 19.8))",&mut env),f64)-19.8).abs()<=std::f64::EPSILON);
+    }
+
+    #[test]
+    fn test_begin() {
+        let mut env = Box::new(init_env());
+        assert!((get_atom_value!(Eval("(begin (+ 3 1) (- 3.14 5) (max 10.1 9.8))", &mut env),f64)-10.1).abs()<=std::f64::EPSILON);
+    }
+
+    #[test]
+    fn test_abs() {
+        let mut env = Box::new(init_env());
+        assert_eq!(get_atom_value!(Eval("(abs -11)",&mut env),i32),11);
+        assert!((get_atom_value!(Eval("(abs -3.1415)",&mut env),f64)-3.1415).abs()<=std::f64::EPSILON);
+    }
+
+    #[test]
+    fn test_map() {
+        let mut env = Box::new(init_env());
+        assert_eq!(format!("{}",Eval("(map + '(1 2 3) '(4 5 6) '(7 8 9))",&mut env)),String::from("(12 15 18)"));
+    }
+
+    #[test]
+    fn test_apply_and_define() {
+        let mut env = Box::new(init_env());
+        Eval("(define E 2.7)", &mut env);
+        assert!((get_atom_value!(Eval("(apply + -1 E PI '(10 20.5))",&mut env), f64)-35.34159265358979).abs()<=std::f64::EPSILON);
+    }
+
+    #[test]
+    fn test_car_cdr_if_list() {
+        let mut env = Box::new(init_env());
+        Eval("(define E 2.7)", &mut env);
+        assert!((get_atom_value!(Eval("(if (> 10.1 10.0) (car (list E PI)) (cdr (list E PI (* E PI))))",&mut env), f64)-2.7).abs()<=std::f64::EPSILON);
+        assert_eq!(format!("{}", Eval("(if (< 10.1 10.0) (car (list E PI)) (cdr (list E PI (* E PI))))",&mut env)), "(3.141592653589793 8.482300164692441)");
+    }
+
+    #[test]
+    fn test_append() {
+        let mut env = Box::new(init_env());
+        Eval("(define r 10)", &mut env);
+        assert_eq!(format!("{}", Eval("(append '(2.1 2.2) (list r (* r r)))",&mut env)), "(2.1 2.2 10 100)");
+    }
+
+    #[test]
+    fn test_cons() {
+        let mut env = Box::new(init_env());
+        Eval("(define E 2.7)", &mut env);
+        assert_eq!(format!("{}", Eval("(cons 3.14 E)",&mut env)), "(3.14 2.7)");
+        assert_eq!(format!("{}", Eval("(cons 3.14 '(10 1.2))",&mut env)), "(3.14 10 1.2)");
+        assert_eq!(format!("{}", Eval("(cons 3.14 (cons E (cons 1 nil)))",&mut env)), "(3.14 2.7 1)");
+    }
 }
